@@ -1,0 +1,6 @@
+!noci
+data/System/SlackPlugin.txt 0644
+lib/Foswiki/Plugins/SlackPlugin/Config.spec 0644
+lib/Foswiki/Plugins/SlackPlugin/Core.pm 0644
+lib/Foswiki/Plugins/SlackPlugin/DEPENDENCIES 0644
+lib/Foswiki/Plugins/SlackPlugin.pm 0644
