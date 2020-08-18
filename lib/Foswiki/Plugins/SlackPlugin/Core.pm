@@ -21,9 +21,10 @@ use warnings;
 use Foswiki::Func ();
 use WebService::Slack::WebApi ();
 use Error qw(:try);
-#use Data::Dump qw(dump);
 
+#use Data::Dump qw(dump);
 use constant TRACE => 0;
+
 use constant SLACK_COLOR_OK      => '#2eb886';    # green
 use constant SLACK_COLOR_INFO    => '#4b42f4';    # blue
 use constant SLACK_COLOR_ERROR   => '#cc0000';    # red
@@ -55,6 +56,8 @@ sub slack {
     $this->{_slack}{$conn} = WebService::Slack::WebApi->new(token => $token) if $token; 
   }
 
+  throw Error::Simple("unknown connection") unless $this->{_slack}{$conn};
+
   return $this->{_slack}{$conn};
 }
 
@@ -78,13 +81,19 @@ sub call {
 
   return $slack->api->test(%$params) if $method eq 'api.test';
   return $slack->auth->test(%$params) if $method eq 'auth.test';
-  return $slack->channels->list(%$params) if $method eq 'channels.list';
-  return $slack->channels->invite(%$params) if $method eq 'channels.invite';
+
+  return $slack->conversations->list(%$params) if $method eq 'conversations.list';
+  return $slack->conversations->invite(%$params) if $method eq 'conversations.invite';
+
+  return $slack->users->list(%$params) if $method eq 'users.list';
+
+  # deprecated
+  #return $slack->channels->list(%$params) if $method eq 'channels.list';
+  #return $slack->channels->invite(%$params) if $method eq 'channels.invite';
 
   #return $this->slack->users->admin->invite(%$params) if $method eq 'users.admin.invite';
 
-  _writeDebug("... unknown method");
-  return;
+  throw Error::Simple("unknown method '$method'");
 }
 
 sub post_ok {
@@ -141,10 +150,20 @@ sub post_message {
   );
 }
 
+sub init {
+  my ($this, $params, $web, $topic) = @_;
+
+  $this->{_params} = $params;
+  $this->{_web} = $web;
+  $this->{_topic} = $topic;
+}
+
 sub SLACK {
   my ($this, $session, $params, $topic, $web) = @_;
 
   _writeDebug("called SLACK()");
+
+  $this->init($params, $web, $topic);
 
   my $method = $params->{_DEFAULT};
   my $response;
@@ -152,6 +171,7 @@ sub SLACK {
 
   try {
     $response = $this->call($method, $params);
+    #_writeDebug("response=".dump($response));
   } catch Error::Simple with {
     $error = shift;
     print STDERR "ERROR: ".$error."\n";
@@ -160,30 +180,129 @@ sub SLACK {
 
   return _inlineError($error) if defined $error;
 
-  _writeDebug("response:");
-  _writeDebug($response) if $response;
+  if (defined $response->{error}) {
+    return _inlineError($response->{error});
+  } 
+
+  my $result;
 
   my $format = $params->{format};
-  my $result;
   if (defined $format) {
-    $result = $this->formatResponse($format, $response);
+    $result = $format;
+    $result =~ s/\$([a-zA-Z0-9\._]+)\b/$this->formatHash($response, $1)/ge;
+    $result =~ s/\$formatDate\((\d*?)(?:, *(.*?))?\)/_formatTime($1, $2)/ge;
+    $result =~ s/\$formatTime\((\d*?)\)/_formatTime($1, $Foswiki::cfg{DateTimePlugin}{DefaultDateTimeFormat} || $Foswiki::cfg{DefaultDateFormat}.' - $hour:$min')/ge;
   } else {
-    $result = _stringifyHash($response);
+    #$result = $this->formatResult($response);
+    $result = _stringify($response);
   }
+
+  my $clear = $params->{clear} // '';
+  foreach my $c (split(/\s*,\s*/, $clear)) {
+    $result =~ s/\$$c//g;
+  }
+
   
   return Foswiki::Func::decodeFormatTokens($result);
 }
 
-sub formatResponse {
-  my ($this, $format, $response) = @_;
-  
-  my $result = $format;
-  
-  foreach my $key (keys %$response) {
-    next if $key =~ /^(?:token|args)$/;
-    my $val = _stringify($response->{$key});
-    $result =~ s/\$$key\b/$val/g;
+sub formatResult {
+  my ($this, $obj) = @_;
+
+  _writeDebug("called formatResult($obj)");
+
+  my @result = ();
+  foreach my $key (sort keys %$obj) {
+    next if $key =~ /^(?:token|ok|cache_ts|_.*|response_metadata)$/;
+    my $line = $this->formatHash($obj, $key);
+    push @result, $line if defined $line && $line ne "";
   }
+  return "" unless scalar(@result);
+
+  my $sep = $this->{_params}{separator} // ', ';
+  my $header = $this->{_params}{header} // '';
+  my $footer = $this->{_params}{footer} // '';
+
+  return $header.join($sep, @result).$footer;
+}
+
+sub formatHash {
+  my ($this, $obj, $key) = @_;
+
+  return '' unless defined $key && defined $obj;
+
+  _writeDebug("called formatHash($obj, $key)");
+
+  return "\n" if $key eq 'n';
+  return '%' if $key eq 'percnt';
+  return '$' if $key eq 'dollar';
+
+  my $subKey;
+  my $origKey = $key;
+
+  if ($key =~ /^(.*)?\.(.*)$/) {
+    $key = $1;
+    $subKey = $2;
+  }
+
+  if (ref($obj) eq 'HASH') {
+
+    #_writeDebug("... hash");
+    my $val = $obj->{$key};
+    return $this->formatHash($val, $subKey) if defined $subKey;
+    return $this->formatArray($val, $key) if ref($val) eq 'ARRAY';
+    return $this->formatHash($val, $key) if ref($val) eq 'HASH';
+
+    return $val if defined($val);
+  } elsif (ref($obj) eq 'ARRAY') {
+    #_writeDebug("... array");
+
+    return $this->formatArray($obj, $key);
+  }
+
+  #_writeDebug("... not defined: $origKey");
+  return '$' . $origKey;
+}
+
+sub formatArray {
+  my ($this, $obj, $key) = @_;
+
+  return "" unless defined $key;
+
+  _writeDebug("called formatArray($obj, $key)");
+
+  my $header = $this->{_params}{$key . "_header"} // '';
+  my $footer = $this->{_params}{$key . "_footer"} // '';
+  my $separator = $this->{_params}{$key . "_separator"} // ' ';
+  my $format = $this->{_params}{$key . "_format"} // '$name';
+
+  my @result = ();
+  my $regex;
+  foreach my $item (@$obj) {
+    my $line = $format;
+    if (ref($item)) {
+      $line =~ s/\$([a-zA-Z0-9\._]+)\b/$this->formatHash($item, $1)/ge;
+    } else {
+      $line =~ s/\$$key\b/$item/g;
+    }
+    push @result, $line if $line ne "";
+  }
+
+  return "" unless @result;
+  return $header . join($separator, @result) . $footer;
+}
+
+sub _formatTime {
+  my ($epoch, $format) = @_;
+
+  return "" unless $epoch;
+
+  my $result;
+  try {
+    $result = Foswiki::Func::formatTime($epoch, $format);
+  } catch Error with {};
+
+  $result ||= '';
 
   return $result;
 }
@@ -192,13 +311,13 @@ sub _stringify {
   my ($val, $depth) = @_;
 
   $depth ||= 1;
-  _writeDebug("called _stringify($val, $depth)");
+  $val //= 'undef';
+  #_writeDebug("called _stringify($val, $depth)");
   my $ref = ref($val);
   return $val unless $ref;
 
   return _stringifyArray($val, $depth) if $ref eq 'ARRAY';
   return _stringifyHash($val, $depth) if $ref eq 'HASH';
-  return $val if $ref =~ /boolean/i;
 
   _writeDebug("Hm, unknown ref=$ref");
   return $val;
@@ -208,7 +327,7 @@ sub _stringifyArray {
   my ($arr, $depth) = @_;
 
   $depth ||= 1;
-  _writeDebug("called _stringifyArr($arr, $depth)");
+  #_writeDebug("called _stringifyArr($arr, $depth)");
 
   my @result = ();
   foreach my $val (@$arr) {
@@ -226,11 +345,11 @@ sub _stringifyHash {
   return "" unless defined $hash;
 
   $depth ||= 1;
-  _writeDebug("called _stringifyHash($hash, $depth)");
+  #_writeDebug("called _stringifyHash($hash, $depth)");
 
   my @result = ();
   foreach my $key (sort keys %$hash) {
-    next if $key =~ /^(?:token|_.*)$/;
+    next if $key =~ /^(?:token|ok|cache_ts|_.*|response_metadata)$/;
     my $val = _stringify($$hash{$key}, $depth+1);
     push @result, "   " x $depth . "* $key: $val" if defined $val && $val ne '';
   }

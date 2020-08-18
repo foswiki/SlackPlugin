@@ -1,10 +1,48 @@
-%META:TOPICINFO{author="ProjectContributor" date="1420222138" format="1.1" version="1"}%
+%META:TOPICINFO{author="micha" comment="reprev" date="1597662031" format="1.1" reprev="2" version="4"}%
 ---+!! %TOPIC%
 %FORMFIELD{"Description"}%
 
 %TOC%
 
----++ Usage
+---++ Description
+
+This plugin lets you post message on one or multiple slack channels. You may either post messages
+explicitly using the %SLACK macro or automatically post notifications of any actions performed on
+Foswiki.
+
+Before being able to communicate with Slack you need at least one token to establish a connection.
+
+   1 create a new app to be installed on your target workspaces at https://api.slack.com/apps
+   1 go to "OAuth & Permissions"
+   1 add the following oauth scopes (extend as required)
+      * calls:read
+      * calls:write
+      * channels:read
+      * chat:write
+      * incomming-webhook
+      * usersgroup:read (optional)
+      * users:read.email (optional)
+      * users:read (optional)
+   1 go to "OAuth & Permissions" again and copy the Bot User OAuth Access Token to your set of =Connections=, the one starting with =xoxb-...=
+   1 store it into <verbatim>$Foswiki::cfg{SlackPlugin}{Connections} = { 
+      'default' => '<token>'
+     };</verbatim>
+
+Note that multiple tokens might be registered under different IDs. The =default= ID is mandatory
+and will be used whenever no other ID has been specified. 
+
+If installed correctly then the following should return "1".
+
+%IF{"context 'SlackPluginEnabled'"
+  then="$percntSLACK{\"api.test\" format=\"$ok\"}$percnt"
+  else="plugin not installed"
+}%
+
+More infos at
+
+   * [[https://metacpan.org/pod/WebService::Slack::WebApi][WebService::Slack::WebApi]] 
+   * https://api.slack.com/web
+   * https://api.slack.com/methods
 
 ---++ Examples
 
@@ -24,9 +62,8 @@
 %META:FIELD{name="Version" title="Version" value="%25$VERSION%25"}%
 %META:FIELD{name="Release" title="Release" value="%25$RELEASE%25"}%
 %META:FIELD{name="Description" title="Description" value="%25$SHORTDESCRIPTION%25"}%
-%META:FIELD{name="Copyright" value="2020 Michael Daum"}%
-%META:FIELD{name="License" value="GPL ([[http://www.gnu.org/copyleft/gpl.html][GNU General Public License]])"}%
-%META:FIELD{name="Repository" value="https://github.com/foswiki/%25TOPIC%25"}%
-%META:FIELD{name="Home" value="https://foswiki.org/Extensions/%25TOPIC%25"}%
-%META:FIELD{name="Support" value="https://foswiki.org/Support/%25TOPIC%25"}%
 %META:FIELD{name="Repository" title="Repository" value="https://github.com/foswiki/%25TOPIC%25"}%
+%META:FIELD{name="Copyright" title="Copyright" value="2020 Michael Daum"}%
+%META:FIELD{name="License" title="License" value="GPL ([[http://www.gnu.org/copyleft/gpl.html][GNU General Public License]])"}%
+%META:FIELD{name="Home" title="Home" value="https://foswiki.org/Extensions/%25TOPIC%25"}%
+%META:FIELD{name="Support" title="Support" value="https://foswiki.org/Support/%25TOPIC%25"}%
