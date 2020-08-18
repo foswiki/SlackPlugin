@@ -1,4 +1,4 @@
-%META:TOPICINFO{author="micha" comment="reprev" date="1597662031" format="1.1" reprev="2" version="4"}%
+%META:TOPICINFO{author="micha" comment="reprev" date="1597757719" format="1.1" reprev="4" version="4"}%
 ---+!! %TOPIC%
 %FORMFIELD{"Description"}%
 
@@ -12,13 +12,14 @@ Foswiki.
 
 Before being able to communicate with Slack you need at least one token to establish a connection.
 
-   1 create a new app to be installed on your target workspaces at https://api.slack.com/apps
+   1 create a new app "Foswiki" to be installed on your target workspaces at https://api.slack.com/apps
    1 go to "OAuth & Permissions"
    1 add the following oauth scopes (extend as required)
       * calls:read
       * calls:write
       * channels:read
       * chat:write
+      * groups:read (optional)
       * incomming-webhook
       * usersgroup:read (optional)
       * users:read.email (optional)
@@ -27,6 +28,7 @@ Before being able to communicate with Slack you need at least one token to estab
    1 store it into <verbatim>$Foswiki::cfg{SlackPlugin}{Connections} = { 
       'default' => '<token>'
      };</verbatim>
+   1 go to your slack team and add the Foswiki app to channels as required
 
 Note that multiple tokens might be registered under different IDs. The =default= ID is mandatory
 and will be used whenever no other ID has been specified. 
@@ -45,6 +47,91 @@ More infos at
    * https://api.slack.com/methods
 
 ---++ Examples
+
+---+++ auth.test
+
+<verbatim class="tml">
+%SLACK{"auth.test" format="ok=$ok, team=$team, team_id=$team_id, user=$user, user_id=$user_id, url=$url"}%
+</verbatim>
+
+---+++ users.list
+
+<verbatim class="tml"> 
+%SLACK{"users.list"
+   format="$members"
+   members_header="| *Name* | *ID* | *Name* | *TZ* | *Title* | *Skype* | *Photo* |$n"
+   members_format="| $name | $id | $profile.real_name | $tz | $profile.title | $profile.skype | <img src='$profile.image_48' /> |"
+   members_separator="$n"
+   clear="tz"
+}%
+</verbatim>
+
+---+++ conversations.list 
+
+<verbatim class="tml">
+%SLACK{"conversations.list"
+   format="$channels"
+   types="public_channel,private_channel"
+   channels_header="| *Name* | *Purpose* | *Created* | *Members* | $n"
+   channels_format="| $name | $purpose.value | $formatTime($created) | $num_members |"
+   channels_separator="$n"
+   clear="num_members"
+}%
+</verbatim>
+
+%STARTSECTION{"postmessage"}%
+---++ post message
+
+<div class="foswikiPageForm">
+<form action="%SCRIPTURLPATH{"view"}%/%WEB%/%TOPIC%">
+<input type="hidden" name="section" value="postmessage" />
+<table class='foswikiLayoutTable'>
+<tr>
+  <th>Title:</th>
+  <td> <input type="text" size="80" name="title" value="%URLPARAM{"title"}%" /> </td>
+</tr>
+<tr>
+  <th>Message:</th>
+  <td> <input type="text" size="80" name="msg" value="%URLPARAM{"msg"}%" /> </td>
+</tr>
+<tr>
+  <th>Type:</th>
+  <td> 
+   <select name="method" class='foswikiSelect'>
+      <option %IF{"'%URLPARAM{"method"}%'='chat.postMessage'" then="selected"}% value="chat.postMessage">default</option>
+      <option %IF{"'%URLPARAM{"method"}%'='ok'" then="selected"}%>ok</option>
+      <option %IF{"'%URLPARAM{"method"}%'='info'" then="selected"}%>info</option>
+      <option %IF{"'%URLPARAM{"method"}%'='warning'" then="selected"}%>warning</option>
+      <option %IF{"'%URLPARAM{"method"}%'='error'" then="selected"}%>error</option>
+   </select>
+  </td>
+</tr>
+<tr>
+  <th>Channel:</th>
+  <td>
+    <select name="channel" class="foswikiSelect">
+      %SLACK{"conversations.list"
+         format="$channels"
+         types="public_channel,private_channel"
+         channels_format="<option $percntIF{\"'%URLPARAM{"channel"}%'='$name'\" then=\"selected\"}$percnt>$name</option>"
+      }%
+    </select>
+  </td>
+</tr>
+</table>
+---
+%BUTTON{"Submit" type="submit" icon="fa-tick"}%
+</form>
+</div>
+
+%SLACK{
+   "%URLPARAM{"method"}%" 
+   text="%URLPARAM{"msg"}%" 
+   title="%URLPARAM{"title"}%" 
+   channel="%URLPARAM{"channel"}%"
+   format="<div class='foswikiInfoMessage'>Message has been posted.</div>"
+}%<!-- -->
+%ENDSECTION{"postmessage"}%
 
 ---++ Installation Instructions
 %$INSTALL_INSTRUCTIONS%

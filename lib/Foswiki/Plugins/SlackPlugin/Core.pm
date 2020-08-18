@@ -134,8 +134,6 @@ sub post_message {
   return unless defined $text && $text ne "";
 
   my $slack = $this->slack($params->{conn});
-  return unless $slack;
-
   my $attachments = {
     text => $text,
     mrkdwn_in => [qw/text title/],
@@ -145,7 +143,7 @@ sub post_message {
   $attachments->{color} = $color if defined $color;
 
   return $slack->chat->post_message(
-    channel => $params->{channel} || "general",
+    channel => $params->{channel} // "#general",
     attachments => [$attachments]
   );
 }
@@ -166,8 +164,11 @@ sub SLACK {
   $this->init($params, $web, $topic);
 
   my $method = $params->{_DEFAULT};
+  return "" unless $method;
+
   my $response;
   my $error;
+
 
   try {
     $response = $this->call($method, $params);
@@ -181,7 +182,9 @@ sub SLACK {
   return _inlineError($error) if defined $error;
 
   if (defined $response->{error}) {
-    return _inlineError($response->{error});
+    my $error = $response->{error};
+    $error = "missing scope: $response->{needed} required" if defined $response->{needed} && $error eq 'missing_scope';
+    return _inlineError($error);
   } 
 
   my $result;
